@@ -24,6 +24,12 @@
   <a href="#privacy">🔒 数据与隐私</a>
 </p>
 
+<p align="center">
+  <a href="assets/one-tutor-overview.jpg">
+    <img src="assets/one-tutor-overview.jpg" alt="OneTutor 功能概览：资料建库、自适应出题、信心作答、错因诊断和间隔复习" width="100%">
+  </a>
+</p>
+
 ---
 
 > [!TIP]
