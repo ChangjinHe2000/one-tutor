@@ -22,7 +22,7 @@
   &nbsp;·&nbsp;
   <a href="#how-it-works">🧠 工作原理</a>
   &nbsp;·&nbsp;
-  <a href="#soft-exam-demo">👀 软考实测</a>
+  <a href="#examples">👀 案例演示</a>
   &nbsp;·&nbsp;
   <a href="#privacy">🔒 数据与隐私</a>
 </p>
@@ -78,9 +78,54 @@
 
 Codex 负责理解资料、编写题目和提供个性化讲解；Skill 自带的确定性脚本负责题库校验、选题、批改、学习记录与间隔复习调度。
 
-<a id="soft-exam-demo"></a>
+<a id="examples"></a>
 
-## 👀 用软考题目跑一次真实闭环
+## 👀 案例演示
+
+OneTutor 不绑定某一个考试。只要你能提供资料、笔记或题库，它就可以把内容整理成“出题 → 作答 → 诊断 → 复习”的闭环。下面先用更常见的四六级英语举一个轻量例子，再展示一轮完整的软考可复现结果。
+
+### 四六级英语：从词汇、阅读到作文表达
+
+如果你正在准备大学英语四级或六级，可以把词汇表、阅读错题、作文批改记录或听力笔记交给 OneTutor：
+
+```text
+使用 $one-tutor，根据我的六级词汇表、阅读错题和作文批改记录，生成今天的复习测验。
+要求：
+1. 词汇题、阅读理解题和翻译表达题混合出现
+2. 每题记录我的信心程度：稳 / 不确定 / 蒙
+3. 批改后告诉我哪些是词义误判、固定搭配不熟、长难句理解问题或表达不自然
+```
+
+一次测验可以长这样：
+
+| 模块 | OneTutor 可以怎么考 |
+| --- | --- |
+| 词汇 | `The word "substantial" is closest in meaning to ___` |
+| 搭配 | `make / do / take` 哪个更适合 `a contribution` |
+| 阅读 | 根据一段短文判断作者态度或定位细节 |
+| 翻译 | 把中文句子译成英文，并检查时态、搭配和表达自然度 |
+| 写作 | 根据你的作文片段指出重复用词、句式单一和逻辑衔接问题 |
+
+提交答案时仍然按题号和信心程度写即可：
+
+```text
+我的答案：
+1. C，稳
+2. make a contribution，不确定
+3. B，蒙
+4. The rapid development of online education has changed the way students learn. 不确定
+```
+
+批改后，OneTutor 不只给分，还会把问题拆成可复习的标签：
+
+```text
+词义误判：substantial 不是“物质的”，在本题中更接近“大量的、重要的”
+固定搭配：contribution 常与 make 搭配
+长难句：第 3 题定位到了原文，但忽略了转折词 however
+表达优化：changed the way students learn 可保留；如果用于作文，可扩展原因和影响
+```
+
+### 软考题目：跑一次真实闭环
 
 仓库内置了一套由真实软考复习记录中的薄弱点改写而成的公开示例。下面展示一轮可复现的 OneTutor 运行结果。
 
