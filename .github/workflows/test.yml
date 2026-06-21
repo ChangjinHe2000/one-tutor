@@ -22,3 +22,7 @@ jobs:
         run: python -m py_compile one-tutor/scripts/study_loop.py
       - name: Run tests
         run: python -m unittest discover -s tests -v
+      - name: Reproduce soft-exam demo
+        run: |
+          python examples/soft-exam/run_demo.py
+          git diff --exit-code -- examples/soft-exam/results

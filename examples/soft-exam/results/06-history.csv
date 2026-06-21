@@ -1,0 +1,7 @@
+session_id,session_date,question_id,topic,bucket,user_answer,confidence,is_correct,error_type,mastery,repetitions,interval_days,ease,next_review,notes
+round-1,2026-06-01,ruankao-uml-composition-001,UML,new,A,high,false,misconception,needs-review,0,1,2.3,2026-06-02,演示：有把握但答错，用于识别概念误解
+round-1,2026-06-01,ruankao-security-ips-001,信息安全,new,C,low,true,lucky-guess,reinforcing,1,1,2.36,2026-06-02,演示：答对但信心很低，用于识别蒙对
+round-1,2026-06-01,ruankao-software-design-001,软件工程,new,C,medium,true,uncertain-correct,reinforcing,1,1,2.5,2026-06-02,演示：答对但仍需巩固
+round-1,2026-06-01,ruankao-database-independence-001,数据库,new,A,high,true,,learning,1,1,2.6,2026-06-02,
+round-1,2026-06-01,ruankao-oo-message-001,面向对象,new,B,high,true,,learning,1,1,2.6,2026-06-02,
+round-1,2026-06-01,ruankao-requirement-performance-001,软件工程,new,B,high,true,,learning,1,1,2.6,2026-06-02,

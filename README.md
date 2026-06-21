@@ -22,6 +22,8 @@
   &nbsp;·&nbsp;
   <a href="#how-it-works">🧠 工作原理</a>
   &nbsp;·&nbsp;
+  <a href="#soft-exam-demo">👀 软考实测</a>
+  &nbsp;·&nbsp;
   <a href="#privacy">🔒 数据与隐私</a>
 </p>
 
@@ -75,6 +77,34 @@
 ```
 
 Codex 负责理解资料、编写题目和提供个性化讲解；Skill 自带的确定性脚本负责题库校验、选题、批改、学习记录与间隔复习调度。
+
+<a id="soft-exam-demo"></a>
+
+## 👀 用软考题目跑一次真实闭环
+
+仓库内置了一套由真实软考复习记录中的薄弱点改写而成的公开示例。下面的数据不是宣传文案，而是 OneTutor 脚本的真实运行结果：
+
+| 阶段 | OneTutor 的处理结果 |
+| --- | --- |
+| 第一轮出题 | 从 10 道题中生成 6 道新题 |
+| 模拟作答 | 5/6，包含“稳但答错”“蒙对”“不确定但答对” |
+| 错因诊断 | 概念误解 1 题、蒙对 1 题、答对但不确定 1 题 |
+| 次日状态 | 6 道题到期，薄弱点为 UML、信息安全、软件工程 |
+| 第二轮出题 | 自动组合 2 道复习题 + 1 道薄弱点强化题 + 3 道新题 |
+
+可以直接查看：
+
+- [完整软考实测说明](examples/soft-exam/README.md)
+- [第一轮测验](examples/soft-exam/results/01-round-1-quiz.md)
+- [批改与错因诊断](examples/soft-exam/results/03-round-1-feedback.md)
+- [第二轮自适应测验](examples/soft-exam/results/04-round-2-quiz.md)
+- [可复现的命令与真实输出](examples/soft-exam/results/commands-and-output.md)
+
+一条命令即可重新生成全部展示结果：
+
+```bash
+python3 examples/soft-exam/run_demo.py
+```
 
 <a id="requirements"></a>
 
