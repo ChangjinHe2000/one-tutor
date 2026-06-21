@@ -1,0 +1,38 @@
+{
+  "session_id": "round-2",
+  "date": "2026-06-02",
+  "subject": "软件设计师考试",
+  "language": "zh",
+  "questions": [
+    {
+      "number": 1,
+      "question_id": "ruankao-uml-composition-001",
+      "bucket": "review"
+    },
+    {
+      "number": 2,
+      "question_id": "ruankao-security-ips-001",
+      "bucket": "review"
+    },
+    {
+      "number": 3,
+      "question_id": "ruankao-requirement-performance-001",
+      "bucket": "weak"
+    },
+    {
+      "number": 4,
+      "question_id": "ruankao-network-dns-001",
+      "bucket": "new"
+    },
+    {
+      "number": 5,
+      "question_id": "ruankao-pattern-strategy-001",
+      "bucket": "new"
+    },
+    {
+      "number": 6,
+      "question_id": "ruankao-data-heap-001",
+      "bucket": "new"
+    }
+  ]
+}

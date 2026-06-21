@@ -64,6 +64,10 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(study_loop.display_language(self.config), "zh")
         self.assertEqual(study_loop.display_language({"subject": "Biology"}), "en")
 
+    def test_blank_independent_field_keeps_default_true(self):
+        self.assertTrue(question("csv-blank", "CSV", stem="Blank independent?")["independent"])
+        self.assertTrue(study_loop.canonicalize_question({"id": "csv-blank", "independent": ""})["independent"])
+
     def test_one_question_session_reserves_due_review(self):
         questions = [question("high-wrong", "A"), question("low-wrong", "B"), question("new", "C")]
         history = [
@@ -220,6 +224,70 @@ class CliWorkflowTests(unittest.TestCase):
             feedback = (project / "feedback" / "priority.md").read_text(encoding="utf-8")
             self.assertLess(feedback.index("### 第 2 题"), feedback.index("### 第 1 题"))
             self.assertIn("分类：概念误解", feedback)
+
+    def test_generate_rejects_path_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "study"
+            self.run_cli("init", project, "--subject", "Demo", "--quiz-size", "1", "--language", "en")
+            study_loop.write_bank(project / "question-bank.jsonl", [question("safe-1", "Topic")])
+
+            result = self.run_cli(
+                "generate",
+                project,
+                "--date",
+                "2026-06-01",
+                "--session",
+                "../escape",
+                "--size",
+                "1",
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Session id must", result.stderr)
+            self.assertFalse((project / "escape.json").exists())
+            self.assertFalse((project / "escape.md").exists())
+
+    def test_string_false_exclude_does_not_disable_question(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "study"
+            self.run_cli("init", project, "--subject", "Demo", "--quiz-size", "1", "--language", "en")
+            study_loop.write_bank(project / "question-bank.jsonl", [question("q-1", "Topic")])
+            self.run_cli("generate", project, "--date", "2026-06-01", "--session", "round-1", "--size", "1")
+
+            answers_path = project / "sessions" / "round-1.answers.json"
+            study_loop.write_json(
+                answers_path,
+                {
+                    "session_id": "round-1",
+                    "answers": [
+                        {"number": 1, "answer": "B", "confidence": "high", "exclude": "false"},
+                    ],
+                },
+            )
+
+            result = self.run_cli("grade", project, "--session", "round-1", "--answers", answers_path)
+            self.assertIn("Graded 1 questions", result.stdout)
+            bank = {item["id"]: item for item in study_loop.load_bank(project / "question-bank.jsonl")}
+            self.assertEqual(bank["q-1"]["status"], "active")
+
+    def test_rejects_non_positive_quiz_sizes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "study"
+
+            result = self.run_cli(
+                "init", project, "--subject", "Demo", "--quiz-size", "0", "--language", "en", check=False
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("positive integer", result.stderr)
+
+            self.run_cli("init", project, "--subject", "Demo", "--quiz-size", "1", "--language", "en")
+            study_loop.write_bank(project / "question-bank.jsonl", [question("q-1", "Topic")])
+            result = self.run_cli(
+                "generate", project, "--date", "2026-06-01", "--session", "round-1", "--size", "0", check=False
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("positive integer", result.stderr)
 
 
 if __name__ == "__main__":

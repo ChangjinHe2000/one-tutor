@@ -1,0 +1,47 @@
+{
+  "session_id": "round-1",
+  "answers": [
+    {
+      "number": 1,
+      "answer": "A",
+      "confidence": "稳",
+      "exclude": false,
+      "notes": "演示：有把握但答错，用于识别概念误解"
+    },
+    {
+      "number": 2,
+      "answer": "C",
+      "confidence": "蒙",
+      "exclude": false,
+      "notes": "演示：答对但信心很低，用于识别蒙对"
+    },
+    {
+      "number": 3,
+      "answer": "C",
+      "confidence": "不确定",
+      "exclude": false,
+      "notes": "演示：答对但仍需巩固"
+    },
+    {
+      "number": 4,
+      "answer": "A",
+      "confidence": "稳",
+      "exclude": false,
+      "notes": ""
+    },
+    {
+      "number": 5,
+      "answer": "B",
+      "confidence": "稳",
+      "exclude": false,
+      "notes": ""
+    },
+    {
+      "number": 6,
+      "answer": "B",
+      "confidence": "稳",
+      "exclude": false,
+      "notes": ""
+    }
+  ]
+}

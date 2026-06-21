@@ -57,6 +57,9 @@ CONTEXT_RISK_RE = re.compile(
 )
 ANSWER_LEAK_RE = re.compile(r"(?:correct answer|答案|正确答案)\s*[:：]", re.IGNORECASE)
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
+SAFE_SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+TRUE_VALUES = {"true", "1", "yes", "y", "on", "是", "对", "真"}
+FALSE_VALUES = {"false", "0", "no", "n", "off", "否", "不", "假"}
 
 
 def fail(message: str) -> None:
@@ -82,6 +85,42 @@ def parse_iso_date(value: str) -> date:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         fail(f"Expected date in YYYY-MM-DD format, got: {value}")
+
+
+def parse_bool(value: Any, field: str, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or str(value).strip() == "":
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in TRUE_VALUES:
+        return True
+    if normalized in FALSE_VALUES:
+        return False
+    fail(f"Expected {field} to be a boolean value, got: {value!r}")
+
+
+def require_positive_int(value: Any, field: str) -> int:
+    if isinstance(value, bool):
+        fail(f"Expected {field} to be a positive integer, got: {value!r}")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        number = int(value.strip())
+    else:
+        fail(f"Expected {field} to be a positive integer, got: {value!r}")
+    if number < 1:
+        fail(f"Expected {field} to be a positive integer, got: {value!r}")
+    return number
+
+
+def validate_session_id(session_id: str) -> str:
+    if not SAFE_SESSION_RE.fullmatch(session_id):
+        fail(
+            "Session id must start with a letter or digit and contain only letters, digits, dots, "
+            "underscores, or hyphens"
+        )
+    return session_id
 
 
 def today_iso() -> str:
@@ -140,8 +179,8 @@ def canonicalize_question(raw: dict[str, Any]) -> dict[str, Any]:
     question_type = str(raw.get("type", "single_choice")).strip()
     status = str(raw.get("status", "active")).strip()
     independent = raw.get("independent", True)
-    if isinstance(independent, str):
-        independent = independent.strip().lower() not in {"false", "0", "no", "否"}
+    if not isinstance(independent, bool):
+        independent = parse_bool(independent, "independent", default=True)
     tags = raw.get("tags", [])
     if isinstance(tags, str):
         tags = [item.strip() for item in re.split(r"[,，|]", tags) if item.strip()]
@@ -565,12 +604,13 @@ def command_init(args: argparse.Namespace) -> None:
     paths = project_paths(project)
     if paths["config"].exists() and not args.force:
         fail(f"Project already initialized: {project}")
+    quiz_size = require_positive_int(args.quiz_size, "--quiz-size")
     project.mkdir(parents=True, exist_ok=True)
     paths["sessions"].mkdir(exist_ok=True)
     paths["feedback"].mkdir(exist_ok=True)
     config = {
         "subject": args.subject,
-        "quiz_size": args.quiz_size,
+        "quiz_size": quiz_size,
         "mix": {"new": 0.5, "review": 0.35, "weak": 0.15},
         "seed_salt": "one-tutor",
         "confidence_labels": ["high", "medium", "low"],
@@ -626,9 +666,9 @@ def command_generate(args: argparse.Namespace) -> None:
         fail("Fix the question bank before generating:\n- " + "\n- ".join(errors))
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
-    session_id = args.session or args.date
+    session_id = validate_session_id(args.session or args.date)
     session_date = parse_iso_date(args.date)
-    requested = args.size or int(config.get("quiz_size", 20))
+    requested = require_positive_int(args.size if args.size is not None else config.get("quiz_size", 20), "--size")
     selected = select_questions(
         questions,
         read_history(paths["history"]),
@@ -685,7 +725,8 @@ def command_grade(args: argparse.Namespace) -> None:
     project = Path(args.project).expanduser().resolve()
     paths = project_paths(project)
     config = load_config(project)
-    session = read_json(paths["sessions"] / f"{args.session}.json")
+    session_id = validate_session_id(args.session)
+    session = read_json(paths["sessions"] / f"{session_id}.json")
     submitted = read_json(Path(args.answers).expanduser().resolve())
     submitted_items = submitted.get("answers", submitted) if isinstance(submitted, dict) else submitted
     if not isinstance(submitted_items, list):
@@ -694,10 +735,10 @@ def command_grade(args: argparse.Namespace) -> None:
     questions = {q["id"]: q for q in load_bank(paths["bank"])}
     language = str(session.get("language") or display_language(config, questions.values()))
     history = read_history(paths["history"])
-    if any(row.get("session_id") == args.session for row in history):
+    if any(row.get("session_id") == session_id for row in history):
         if not args.force:
-            fail(f"Session {args.session} has already been graded; pass --force to regrade")
-        history = [row for row in history if row.get("session_id") != args.session]
+            fail(f"Session {session_id} has already been graded; pass --force to regrade")
+        history = [row for row in history if row.get("session_id") != session_id]
     states = latest_states(history)
     session_date = parse_iso_date(session["date"])
     results: list[dict[str, Any]] = []
@@ -711,13 +752,13 @@ def command_grade(args: argparse.Namespace) -> None:
         if not q:
             fail(f"Question no longer exists in bank: {item['question_id']}")
         confidence = normalize_confidence(answer_item.get("confidence", ""))
-        if bool(answer_item.get("exclude", False)):
+        if parse_bool(answer_item.get("exclude", False), "exclude"):
             q["status"] = "disabled"
             bank_changed = True
             results.append({"number": number, "question": q, "excluded": True})
             history.append(
                 {
-                    "session_id": args.session,
+                    "session_id": session_id,
                     "session_date": session["date"],
                     "question_id": q["id"],
                     "topic": q["topic"],
@@ -743,7 +784,7 @@ def command_grade(args: argparse.Namespace) -> None:
             results.append({"number": number, "question": q, "manual": True})
             history.append(
                 {
-                    "session_id": args.session,
+                    "session_id": session_id,
                     "session_date": session["date"],
                     "question_id": q["id"],
                     "topic": q["topic"],
@@ -764,7 +805,7 @@ def command_grade(args: argparse.Namespace) -> None:
         spaced = schedule(states.get(q["id"]), correct, confidence, session_date)
         error_type = inferred_error_type(correct, confidence, str(answer_item.get("error_type", "")).strip())
         row = {
-            "session_id": args.session,
+            "session_id": session_id,
             "session_date": session["date"],
             "question_id": q["id"],
             "topic": q["topic"],
@@ -805,7 +846,7 @@ def command_grade(args: argparse.Namespace) -> None:
     excluded = [result for result in results if result.get("excluded")]
     if language == "zh":
         lines = [
-            f"# {session.get('subject', '学习')} · 答题反馈（{args.session}）",
+            f"# {session.get('subject', '学习')} · 答题反馈（{session_id}）",
             "",
             f"- 得分：{correct_count}/{len(graded)}" if graded else "- 得分：等待人工批改",
             f"- 答错：{len(wrong)}",
@@ -818,7 +859,7 @@ def command_grade(args: argparse.Namespace) -> None:
         ]
     else:
         lines = [
-            f"# {session.get('subject', 'Study')} · Feedback ({args.session})",
+            f"# {session.get('subject', 'Study')} · Feedback ({session_id})",
             "",
             f"- Score: {correct_count}/{len(graded)}" if graded else "- Score: pending manual review",
             f"- Incorrect: {len(wrong)}",
@@ -886,7 +927,7 @@ def command_grade(args: argparse.Namespace) -> None:
     for topic, (right, total) in sorted(topic_stats.items(), key=lambda item: (item[1][0] / item[1][1], item[0])):
         lines.append(f"- {topic}: {right}/{total}")
     lines.append("")
-    feedback_path = paths["feedback"] / f"{args.session}.md"
+    feedback_path = paths["feedback"] / f"{session_id}.md"
     feedback_path.write_text("\n".join(lines), encoding="utf-8")
     if language == "zh":
         print(f"已批改 {len(graded)} 道题：答对 {correct_count} 道，答错 {len(wrong)} 道")
