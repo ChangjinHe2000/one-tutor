@@ -32,8 +32,10 @@ Treat the study project as user data. Keep it outside the installed skill direct
 2. Create a project directory and initialize it:
 
 ```bash
-python3 scripts/study_loop.py init <project-dir> --subject "<subject>" --quiz-size 20
+python3 scripts/study_loop.py init <project-dir> --subject "<subject>" --quiz-size 20 --language auto
 ```
+
+Use `--language zh` or `--language en` to force the learner-facing language. With `auto`, the CLI detects Chinese from the subject and question stems.
 
 3. Read [references/question-schema.md](references/question-schema.md) before creating or importing questions.
 4. Read the user's source files and create a source-grounded JSONL bank. Use stable semantic IDs; do not derive new facts from memory when the source is available.
@@ -69,7 +71,7 @@ Do not reveal answers or explanations before the learner submits unless they exp
 ## Grade and update review state
 
 1. Copy the learner's answers and confidence into `<session>.answers.json`.
-2. Mark `exclude: true` when a question is incomplete, ambiguous, corrupted, dependent on missing context, or has an unreliable key. Explain the reason in `notes`. Do not count excluded questions as learner errors.
+2. Mark `exclude: true` when a question is incomplete, ambiguous, corrupted, dependent on missing context, or has an unreliable key. Explain the reason in `notes`. Do not count excluded questions as learner errors. Grading automatically changes the question to `status: disabled`, so it cannot silently reappear as a new question. After repairing it, explicitly restore `status: active`; its prior exclusion record sends it to the review pool instead of the new-question pool.
 3. For a manually graded short response, set the question's `grading_mode` to `manual` and add `is_correct: true` or `false` to the submitted answer after evaluating it against the source.
 4. Run:
 
