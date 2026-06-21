@@ -16,12 +16,14 @@ Read the mix from `config.json`:
 }
 ```
 
-- `new`: active, independent questions with no graded attempt.
-- `review`: previously graded questions whose `next_review` is due.
+- `new`: active, independent questions with no prior attempt or exclusion record.
+- `review`: previously graded questions whose `next_review` is due, plus repaired questions that were previously excluded and then reactivated.
 - `weak`: unmastered questions from topics accumulating errors or low-confidence successes.
 - `fill`: safe fallback when one requested bucket lacks enough questions.
 
 Adjust proportions to the learner's phase. Use more new questions during coverage, more review near consolidation, and more weak-topic questions after diagnostic tests.
+
+When due review items exist, even a one-question session reserves a review slot. Inside that slot, high-confidence incorrect answers come first, followed by other incorrect answers and then uncertain correct answers. Weak-topic selection preserves topic severity order while randomizing questions only within the same topic.
 
 ## Confidence interpretation
 

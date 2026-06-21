@@ -12,6 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ChangjinHe2000/one-tutor?style=flat-square&label=License" alt="MIT License"></a>
   <a href="one-tutor/SKILL.md"><img src="https://img.shields.io/badge/Codex-Skill-10A37F?style=flat-square" alt="Codex Skill"></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://github.com/ChangjinHe2000/one-tutor/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/ChangjinHe2000/one-tutor/test.yml?branch=main&style=flat-square&label=Tests" alt="Tests"></a>
 </p>
 
 <p align="center">
@@ -135,6 +136,16 @@ cp -R one-tutor/one-tutor ~/.codex/skills/one-tutor
 - Skill 本身不包含教材、付费课程、个人笔记或私人学习记录
 - 学习项目与 Skill 安装目录相互独立，更新 Skill 不会覆盖学习记录
 - 请只使用自己有权使用的学习资料
+
+## 🧪 本地验证
+
+仓库的回归测试覆盖中文学习闭环、复习优先级、异常题排除和修复后的重新启用：
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+测试仅使用 Python 标准库；推送到 GitHub 后也会由 GitHub Actions 自动运行。
 
 ## 📄 开源协议
 

@@ -48,6 +48,7 @@ Use UTF-8 JSON Lines for `question-bank.jsonl`: one complete JSON object per lin
 - Use `difficulty` values such as `easy`, `medium`, or `hard` consistently within one project.
 - Set `independent: false` when a figure, passage, or preceding question is unavailable.
 - Set `status: disabled` when the key is doubtful or the item should not be selected.
+- Grading an answer with `exclude: true` automatically sets `status: disabled`. After repairing the item, set it back to `active`; it will return as a review item, not an unseen item.
 - Set `grading_mode: manual` for responses that require semantic judgment.
 
 ## CSV import
@@ -77,3 +78,5 @@ study-project/
 ```
 
 Treat `history.csv` as generated state. Do not hand-edit it unless repairing a documented data problem.
+
+`config.json` also stores `language` as `auto`, `zh`, or `en`. In `auto` mode, learner-facing quiz, feedback, and status text follows the subject and question language.

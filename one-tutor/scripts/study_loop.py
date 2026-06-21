@@ -56,6 +56,7 @@ CONTEXT_RISK_RE = re.compile(
     re.IGNORECASE,
 )
 ANSWER_LEAK_RE = re.compile(r"(?:correct answer|答案|正确答案)\s*[:：]", re.IGNORECASE)
+CJK_RE = re.compile(r"[\u3400-\u9fff]")
 
 
 def fail(message: str) -> None:
@@ -85,6 +86,14 @@ def parse_iso_date(value: str) -> date:
 
 def today_iso() -> str:
     return date.today().isoformat()
+
+
+def display_language(config: dict[str, Any], questions: Iterable[dict[str, Any]] = ()) -> str:
+    configured = str(config.get("language", "auto")).strip().lower()
+    if configured in {"en", "zh"}:
+        return configured
+    sample = str(config.get("subject", "")) + " " + " ".join(q.get("stem", "") for q in list(questions)[:5])
+    return "zh" if CJK_RE.search(sample) else "en"
 
 
 def project_paths(project: Path) -> dict[str, Path]:
@@ -272,6 +281,21 @@ def latest_states(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
     return states
 
 
+def latest_records(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+    records: dict[str, dict[str, str]] = {}
+    for row in rows:
+        if row.get("question_id"):
+            records[row["question_id"]] = row
+    return records
+
+
+def record_is_due(record: dict[str, str], on_date: date) -> bool:
+    if record.get("mastery") == "excluded":
+        return True
+    next_review = record.get("next_review", "")
+    return record.get("is_correct") in {"true", "false"} and bool(next_review) and next_review <= on_date.isoformat()
+
+
 def weak_topic_scores(rows: list[dict[str, str]]) -> list[tuple[str, float]]:
     totals: dict[str, float] = defaultdict(float)
     attempts: dict[str, int] = defaultdict(int)
@@ -316,7 +340,7 @@ def select_questions(
     eligible = [q for q in questions if q["status"] == "active" and q["independent"]]
     if requested > len(eligible):
         fail(f"Requested {requested} questions, but only {len(eligible)} active independent questions exist")
-    states = latest_states(history)
+    records = latest_records(history)
     weak_topics = [topic for topic, score in weak_topic_scores(history) if score > 0][:5]
     seed = f"{config.get('seed_salt', '')}|{config.get('subject', '')}|{session_id}"
     rng = random.Random(seed)
@@ -326,20 +350,46 @@ def select_questions(
         rng.shuffle(result)
         return result
 
-    new_pool = randomized(q for q in eligible if q["id"] not in states)
-    review_pool = randomized(
-        q
-        for q in eligible
-        if q["id"] in states
-        and states[q["id"]].get("next_review", "9999-12-31") <= session_date.isoformat()
-    )
-    weak_pool = randomized(
-        q
-        for topic in weak_topics
-        for q in eligible
-        if q["topic"] == topic and states.get(q["id"], {}).get("mastery") != "mastered"
-    )
+    new_pool = randomized(q for q in eligible if q["id"] not in records)
+
+    def is_due(q: dict[str, Any]) -> bool:
+        return record_is_due(records.get(q["id"], {}), session_date)
+
+    def review_priority(q: dict[str, Any]) -> tuple[int, str, str]:
+        record = records.get(q["id"], {})
+        if record.get("is_correct") == "false" and record.get("confidence") == "high":
+            severity = 0
+        elif record.get("is_correct") == "false":
+            severity = 1
+        elif record.get("mastery") == "excluded":
+            severity = 2
+        elif record.get("confidence") == "low":
+            severity = 3
+        elif record.get("confidence") == "medium":
+            severity = 4
+        else:
+            severity = 5
+        return (severity, record.get("next_review", "9999-12-31") or "9999-12-31", q["id"])
+
+    review_pool = randomized(q for q in eligible if is_due(q))
+    review_pool.sort(key=review_priority)
+
+    weak_pool: list[dict[str, Any]] = []
+    for topic in weak_topics:
+        weak_pool.extend(
+            randomized(
+                q
+                for q in eligible
+                if q["topic"] == topic
+                and records.get(q["id"], {}).get("mastery") not in {"mastered", "excluded", "ungraded"}
+            )
+        )
     targets = allocate_counts(requested, config.get("mix", {}))
+    if review_pool and requested > 0 and targets["review"] == 0:
+        donor = max(("new", "weak"), key=lambda bucket: targets[bucket])
+        if targets[donor] > 0:
+            targets[donor] -= 1
+            targets["review"] = 1
     selected: list[dict[str, Any]] = []
     selected_ids: set[str] = set()
 
@@ -354,9 +404,9 @@ def select_questions(
             selected_ids.add(question["id"])
             taken += 1
 
-    take("new", new_pool, targets["new"])
     take("review", review_pool, targets["review"])
     take("weak", weak_pool, targets["weak"])
+    take("new", new_pool, targets["new"])
 
     remaining = requested - len(selected)
     for bucket, pool in (("review", review_pool), ("new", new_pool), ("weak", weak_pool)):
@@ -369,21 +419,30 @@ def select_questions(
     return selected
 
 
-def render_quiz(subject: str, session_id: str, selected: list[dict[str, Any]]) -> str:
-    lines = [
-        f"# {subject} · Adaptive Quiz ({session_id})",
-        "",
-        "Answer every question and record confidence as `high`, `medium`, or `low`.",
-        "Do not inspect the question bank while answering.",
-        "",
-    ]
+def render_quiz(subject: str, session_id: str, selected: list[dict[str, Any]], language: str) -> str:
+    if language == "zh":
+        lines = [
+            f"# {subject} · 自适应测验（{session_id}）",
+            "",
+            "请完成每道题，并将信心程度标记为 `稳`、`不确定` 或 `蒙`。",
+            "作答期间请勿查看题库或答案。",
+            "",
+        ]
+    else:
+        lines = [
+            f"# {subject} · Adaptive Quiz ({session_id})",
+            "",
+            "Answer every question and record confidence as `high`, `medium`, or `low`.",
+            "Do not inspect the question bank while answering.",
+            "",
+        ]
     for number, item in enumerate(selected, start=1):
         q = item["question"]
         lines.extend([f"## {number}. [{q['topic']}]", "", q["stem"], ""])
         for key, value in q["options"].items():
             lines.append(f"- {key}. {value}")
         if not q["options"]:
-            lines.append("Answer: ______________________________")
+            lines.append("作答：______________________________" if language == "zh" else "Answer: ______________________________")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -481,6 +540,26 @@ def display_answer(q: dict[str, Any]) -> str:
     return ", ".join(pieces)
 
 
+def display_confidence(confidence: str, language: str) -> str:
+    if language == "zh":
+        return {"high": "稳", "medium": "不确定", "low": "蒙"}.get(confidence, confidence)
+    return confidence
+
+
+def display_error_type(error_type: str, language: str) -> str:
+    if language == "zh":
+        return {
+            "misconception": "概念误解",
+            "knowledge-gap": "知识缺口",
+            "lucky-guess": "蒙对",
+            "uncertain-correct": "答对但不确定",
+            "invalid-question": "题目异常",
+            "manual-review-required": "需要人工批改",
+            "correct": "正确",
+        }.get(error_type, error_type)
+    return error_type
+
+
 def command_init(args: argparse.Namespace) -> None:
     project = Path(args.project).expanduser().resolve()
     paths = project_paths(project)
@@ -495,12 +574,16 @@ def command_init(args: argparse.Namespace) -> None:
         "mix": {"new": 0.5, "review": 0.35, "weak": 0.15},
         "seed_salt": "one-tutor",
         "confidence_labels": ["high", "medium", "low"],
+        "language": args.language,
     }
     write_json(paths["config"], config)
     write_bank(paths["bank"], demo_questions() if args.with_demo else [])
     if not paths["history"].exists() or args.force:
         write_history(paths["history"], [])
-    print(f"Initialized study project: {project}")
+    if display_language(config, demo_questions() if args.with_demo else []) == "zh":
+        print(f"学习项目已初始化：{project}")
+    else:
+        print(f"Initialized study project: {project}")
 
 
 def command_import(args: argparse.Namespace) -> None:
@@ -537,6 +620,7 @@ def command_generate(args: argparse.Namespace) -> None:
     paths = project_paths(project)
     config = load_config(project)
     questions = load_bank(paths["bank"])
+    language = display_language(config, questions)
     errors, warnings = validate_questions(questions)
     if errors:
         fail("Fix the question bank before generating:\n- " + "\n- ".join(errors))
@@ -560,6 +644,7 @@ def command_generate(args: argparse.Namespace) -> None:
         "session_id": session_id,
         "date": args.date,
         "subject": config.get("subject", "Study"),
+        "language": language,
         "questions": [
             {"number": number, "question_id": item["question"]["id"], "bucket": item["bucket"]}
             for number, item in enumerate(selected, start=1)
@@ -567,7 +652,7 @@ def command_generate(args: argparse.Namespace) -> None:
     }
     write_json(session_path, session)
     quiz_path = paths["sessions"] / f"{session_id}.md"
-    quiz_path.write_text(render_quiz(session["subject"], session_id, selected), encoding="utf-8")
+    quiz_path.write_text(render_quiz(session["subject"], session_id, selected, language), encoding="utf-8")
     answers_path = paths["sessions"] / f"{session_id}.answers.json"
     write_json(
         answers_path,
@@ -577,7 +662,7 @@ def command_generate(args: argparse.Namespace) -> None:
                 {
                     "number": item["number"],
                     "answer": "",
-                    "confidence": "medium",
+                    "confidence": "不确定" if language == "zh" else "medium",
                     "exclude": False,
                     "notes": "",
                 }
@@ -588,7 +673,10 @@ def command_generate(args: argparse.Namespace) -> None:
     bucket_counts: dict[str, int] = defaultdict(int)
     for item in selected:
         bucket_counts[item["bucket"]] += 1
-    print(f"Generated {len(selected)} questions: {dict(bucket_counts)}")
+    if language == "zh":
+        print(f"已生成 {len(selected)} 道题：{dict(bucket_counts)}")
+    else:
+        print(f"Generated {len(selected)} questions: {dict(bucket_counts)}")
     print(quiz_path)
     print(answers_path)
 
@@ -596,6 +684,7 @@ def command_generate(args: argparse.Namespace) -> None:
 def command_grade(args: argparse.Namespace) -> None:
     project = Path(args.project).expanduser().resolve()
     paths = project_paths(project)
+    config = load_config(project)
     session = read_json(paths["sessions"] / f"{args.session}.json")
     submitted = read_json(Path(args.answers).expanduser().resolve())
     submitted_items = submitted.get("answers", submitted) if isinstance(submitted, dict) else submitted
@@ -603,6 +692,7 @@ def command_grade(args: argparse.Namespace) -> None:
         fail("Answers file must be a list or an object containing an answers list")
     by_number = {int(item["number"]): item for item in submitted_items if isinstance(item, dict) and "number" in item}
     questions = {q["id"]: q for q in load_bank(paths["bank"])}
+    language = str(session.get("language") or display_language(config, questions.values()))
     history = read_history(paths["history"])
     if any(row.get("session_id") == args.session for row in history):
         if not args.force:
@@ -611,6 +701,7 @@ def command_grade(args: argparse.Namespace) -> None:
     states = latest_states(history)
     session_date = parse_iso_date(session["date"])
     results: list[dict[str, Any]] = []
+    bank_changed = False
     for item in session["questions"]:
         number = int(item["number"])
         if number not in by_number:
@@ -621,6 +712,8 @@ def command_grade(args: argparse.Namespace) -> None:
             fail(f"Question no longer exists in bank: {item['question_id']}")
         confidence = normalize_confidence(answer_item.get("confidence", ""))
         if bool(answer_item.get("exclude", False)):
+            q["status"] = "disabled"
+            bank_changed = True
             results.append({"number": number, "question": q, "excluded": True})
             history.append(
                 {
@@ -700,6 +793,8 @@ def command_grade(args: argparse.Namespace) -> None:
                 "next_review": spaced["next_review"],
             }
         )
+    if bank_changed:
+        write_bank(paths["bank"], questions.values())
     write_history(paths["history"], history)
 
     graded = [result for result in results if not result.get("manual") and not result.get("excluded")]
@@ -708,58 +803,95 @@ def command_grade(args: argparse.Namespace) -> None:
     uncertain = [result for result in graded if result["correct"] and result["confidence"] != "high"]
     manual = [result for result in results if result.get("manual")]
     excluded = [result for result in results if result.get("excluded")]
-    lines = [
-        f"# {session.get('subject', 'Study')} · Feedback ({args.session})",
-        "",
-        f"- Score: {correct_count}/{len(graded)}" if graded else "- Score: pending manual review",
-        f"- Incorrect: {len(wrong)}",
-        f"- Correct but uncertain: {len(uncertain)}",
-        f"- Manual review required: {len(manual)}",
-        f"- Invalid/excluded questions: {len(excluded)}",
-        "",
-        "## Review first",
-        "",
-    ]
+    if language == "zh":
+        lines = [
+            f"# {session.get('subject', '学习')} · 答题反馈（{args.session}）",
+            "",
+            f"- 得分：{correct_count}/{len(graded)}" if graded else "- 得分：等待人工批改",
+            f"- 答错：{len(wrong)}",
+            f"- 答对但不确定：{len(uncertain)}",
+            f"- 需要人工批改：{len(manual)}",
+            f"- 异常/排除题：{len(excluded)}",
+            "",
+            "## 优先复习",
+            "",
+        ]
+    else:
+        lines = [
+            f"# {session.get('subject', 'Study')} · Feedback ({args.session})",
+            "",
+            f"- Score: {correct_count}/{len(graded)}" if graded else "- Score: pending manual review",
+            f"- Incorrect: {len(wrong)}",
+            f"- Correct but uncertain: {len(uncertain)}",
+            f"- Manual review required: {len(manual)}",
+            f"- Invalid/excluded questions: {len(excluded)}",
+            "",
+            "## Review first",
+            "",
+        ]
+    confidence_priority = {"high": 0, "medium": 1, "low": 2}
+    wrong.sort(key=lambda result: (confidence_priority.get(result["confidence"], 3), result["number"]))
+    uncertain.sort(key=lambda result: (-confidence_priority.get(result["confidence"], 0), result["number"]))
     focus = wrong + uncertain
     if not focus:
-        lines.append("No automatically graded questions require immediate review.")
+        lines.append("暂无需要立即复习的自动批改题。" if language == "zh" else "No automatically graded questions require immediate review.")
         lines.append("")
     for result in focus:
         q = result["question"]
-        lines.extend(
-            [
-                f"### Question {result['number']} · {q['topic']}",
-                "",
-                f"- Your answer: {result['answer']}",
-                f"- Correct answer: {display_answer(q)}",
-                f"- Confidence: {result['confidence']}",
-                f"- Classification: {result['error_type'] or 'correct'}",
-                f"- Next review: {result['next_review']}",
-                f"- Explanation: {q['explanation'] or 'Add an explanation to the question bank.'}",
-                "",
-            ]
-        )
+        if language == "zh":
+            lines.extend(
+                [
+                    f"### 第 {result['number']} 题 · {q['topic']}",
+                    "",
+                    f"- 你的答案：{result['answer']}",
+                    f"- 正确答案：{display_answer(q)}",
+                    f"- 信心程度：{display_confidence(result['confidence'], language)}",
+                    f"- 分类：{display_error_type(result['error_type'] or 'correct', language)}",
+                    f"- 下次复习：{result['next_review']}",
+                    f"- 解析：{q['explanation'] or '请在题库中补充解析。'}",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"### Question {result['number']} · {q['topic']}",
+                    "",
+                    f"- Your answer: {result['answer']}",
+                    f"- Correct answer: {display_answer(q)}",
+                    f"- Confidence: {result['confidence']}",
+                    f"- Classification: {result['error_type'] or 'correct'}",
+                    f"- Next review: {result['next_review']}",
+                    f"- Explanation: {q['explanation'] or 'Add an explanation to the question bank.'}",
+                    "",
+                ]
+            )
     if manual:
-        lines.extend(["## Manual review", ""])
+        lines.extend(["## 人工批改" if language == "zh" else "## Manual review", ""])
         for result in manual:
-            lines.append(f"- Question {result['number']} ({result['question']['id']})")
+            label = "第" if language == "zh" else "Question"
+            suffix = "题" if language == "zh" else ""
+            lines.append(f"- {label} {result['number']} {suffix}（{result['question']['id']}）" if language == "zh" else f"- Question {result['number']} ({result['question']['id']})")
         lines.append("")
     if excluded:
-        lines.extend(["## Invalid or excluded questions", ""])
+        lines.extend(["## 异常或排除题" if language == "zh" else "## Invalid or excluded questions", ""])
         for result in excluded:
-            lines.append(f"- Question {result['number']} ({result['question']['id']})")
+            lines.append(f"- 第 {result['number']} 题（{result['question']['id']}）" if language == "zh" else f"- Question {result['number']} ({result['question']['id']})")
         lines.append("")
     topic_stats: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for result in graded:
         topic_stats[result["question"]["topic"]][1] += 1
         topic_stats[result["question"]["topic"]][0] += int(result["correct"])
-    lines.extend(["## Topic performance", ""])
+    lines.extend(["## 知识点表现" if language == "zh" else "## Topic performance", ""])
     for topic, (right, total) in sorted(topic_stats.items(), key=lambda item: (item[1][0] / item[1][1], item[0])):
         lines.append(f"- {topic}: {right}/{total}")
     lines.append("")
     feedback_path = paths["feedback"] / f"{args.session}.md"
     feedback_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Graded {len(graded)} questions: {correct_count} correct, {len(wrong)} incorrect")
+    if language == "zh":
+        print(f"已批改 {len(graded)} 道题：答对 {correct_count} 道，答错 {len(wrong)} 道")
+    else:
+        print(f"Graded {len(graded)} questions: {correct_count} correct, {len(wrong)} incorrect")
     print(feedback_path)
 
 
@@ -768,17 +900,25 @@ def command_status(args: argparse.Namespace) -> None:
     paths = project_paths(project)
     config = load_config(project)
     questions = load_bank(paths["bank"])
+    language = display_language(config, questions)
     history = read_history(paths["history"])
     states = latest_states(history)
+    records = latest_records(history)
     on_date = parse_iso_date(args.date)
     active = [q for q in questions if q["status"] == "active" and q["independent"]]
-    due = [q for q in active if q["id"] in states and states[q["id"]].get("next_review", "9999-12-31") <= on_date.isoformat()]
+    due = [q for q in active if record_is_due(records.get(q["id"], {}), on_date)]
     mastered = [q for q in active if states.get(q["id"], {}).get("mastery") == "mastered"]
     weak = weak_topic_scores(history)[:5]
-    print(f"Subject: {config.get('subject', '')}")
-    print(f"Question bank: {len(questions)} total, {len(active)} active")
-    print(f"Progress: {len(states)} seen, {len(mastered)} mastered, {len(due)} due on {args.date}")
-    print("Weak topics: " + (", ".join(f"{topic} ({score:.2f})" for topic, score in weak) or "none yet"))
+    if language == "zh":
+        print(f"学科：{config.get('subject', '')}")
+        print(f"题库：共 {len(questions)} 题，启用 {len(active)} 题")
+        print(f"进度：已作答 {len(states)} 题，已掌握 {len(mastered)} 题，{args.date} 到期 {len(due)} 题")
+        print("薄弱知识点：" + (", ".join(f"{topic}（{score:.2f}）" for topic, score in weak) or "暂无"))
+    else:
+        print(f"Subject: {config.get('subject', '')}")
+        print(f"Question bank: {len(questions)} total, {len(active)} active")
+        print(f"Progress: {len(states)} seen, {len(mastered)} mastered, {len(due)} due on {args.date}")
+        print("Weak topics: " + (", ".join(f"{topic} ({score:.2f})" for topic, score in weak) or "none yet"))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -789,6 +929,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("project")
     init_parser.add_argument("--subject", required=True)
     init_parser.add_argument("--quiz-size", type=int, default=20)
+    init_parser.add_argument("--language", choices=["auto", "en", "zh"], default="auto")
     init_parser.add_argument("--with-demo", action="store_true")
     init_parser.add_argument("--force", action="store_true")
     init_parser.set_defaults(func=command_init)
