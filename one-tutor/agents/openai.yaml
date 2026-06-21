@@ -1,0 +1,4 @@
+interface:
+  display_name: "OneTutor"
+  short_description: "Your private AI tutor for adaptive study"
+  default_prompt: "Use $one-tutor to turn my study materials into a personalized quiz-and-review workflow."
